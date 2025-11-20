@@ -1,15 +1,3 @@
-/**
- * index.js (images + bulk-variant-aware final)
- *
- * Usage:
- *   npm install axios dotenv xlsx
- *   node index.js products.xlsx
- *
- * .env must contain:
- *   SHOPIFY_STORE=your-store-prefix
- *   SHOPIFY_ADMIN_TOKEN=shpat_xxx
- *   SHOPIFY_API_VERSION=2024-10
- */
 
 require('dotenv').config();
 const fs = require('fs');
@@ -66,7 +54,6 @@ function buildInputsFromRow(row) {
 
   const productInput = { title, descriptionHtml, productType, vendor, tags };
 
-  // optional metafield
   const metafieldNS = (row.MetafieldNS || row.metafieldNS || '').toString();
   const metafieldKey = (row.MetafieldKey || row.metafieldKey || '').toString();
   const metafieldValue = (row.MetafieldValue || row.metafieldValue || '').toString();
@@ -75,7 +62,6 @@ function buildInputsFromRow(row) {
     productInput.metafields = [{ namespace: metafieldNS, key: metafieldKey, value: metafieldValue, type: metafieldType }];
   }
 
-  // images (semicolon separated)
   const imagesRaw = (row.ImageURLs || row.imageURLs || row.Images || row.images || '').toString();
   const mediaInputs = imagesRaw
     .split(';')
@@ -83,7 +69,6 @@ function buildInputsFromRow(row) {
     .filter(Boolean)
     .map(src => ({ mediaContentType: 'IMAGE', originalSource: src }));
 
-  // variant data
   const priceRaw = row.Price || row.price || row.cost || '';
   const price = priceRaw === '' ? undefined : priceRaw.toString();
   const sku = (row.SKU || row.sku || '').toString() || undefined;
@@ -96,7 +81,7 @@ function buildInputsFromRow(row) {
   return { productInput, mediaInputs, variantData, handle, shopifyId };
 }
 
-/* ---------------- GraphQL operations ---------------- */
+/* ---------------- GraphQL  ---------------- */
 
 async function createProduct(productInput, mediaInputs = []) {
   const mutation = `
@@ -144,11 +129,6 @@ async function addMediaToProduct(productId, mediaInputs = []) {
   return data.productCreateMedia || data;
 }
 
-/**
- * Bulk update variants. SKU must be nested inside inventoryItem.
- * Accepts productId (GID) and variantsArray like:
- * [{ id: 'gid://shopify/ProductVariant/..', price: '499', barcode: '123', inventoryItem: { sku: 'ABC' } }]
- */
 async function updateVariantsBulk(productId, variantsArray = []) {
   if (!productId || !Array.isArray(variantsArray) || variantsArray.length === 0) return { ok: true };
   const mutation = `
@@ -176,7 +156,6 @@ async function getFirstVariantId(productId) {
   return node?.variants?.nodes?.[0]?.id || null;
 }
 
-/* ---------------- Main flow ---------------- */
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
 
@@ -206,7 +185,6 @@ async function main() {
     }
     const { productInput, mediaInputs, variantData, handle, shopifyId: sheetShopifyId } = built;
 
-    // Prefer explicit ShopifyID from sheet; otherwise try handle lookup
     let productId = sheetShopifyId || null;
     try {
       if (!productId && handle) {
@@ -220,7 +198,6 @@ async function main() {
       }
 
       if (productId) {
-        // UPDATE product
         console.log('  Updating product:', productId);
         const up = await updateProduct(productId, productInput);
         if (up && up.userErrors && up.userErrors.length) {
@@ -229,7 +206,6 @@ async function main() {
           console.log('  Product updated (handle):', up?.product?.handle || 'unknown');
         }
 
-        // Add images for existing product if any
         if (mediaInputs && mediaInputs.length) {
           const addMediaResult = await addMediaToProduct(productId, mediaInputs);
           if (addMediaResult && addMediaResult.userErrors && addMediaResult.userErrors.length) {
@@ -239,7 +215,6 @@ async function main() {
           }
         }
 
-        // Update first variant via bulk API (single-variant payload)
         const variantId = await getFirstVariantId(productId);
         if (variantId) {
           const variantPayload = {
@@ -258,7 +233,6 @@ async function main() {
           console.warn('  No variant found to update.');
         }
       } else {
-        // CREATE product
         console.log('  Creating product...');
         if (handle) productInput.handle = handle;
         const createResult = await createProduct(productInput, mediaInputs);
@@ -269,7 +243,6 @@ async function main() {
           const createdId = createdProduct?.id;
           console.log('  Created product id:', createdId);
 
-          // Update initial variant using bulk endpoint (using productId)
           const firstVariant = createdProduct?.variants?.nodes?.[0];
           if (firstVariant && firstVariant.id) {
             const variantPayload = {
